@@ -1,4 +1,4 @@
-# HiddenFreeways
+# VoyagerFreeways
 
 A retro Xfire-style invite-only gated community web app for urban explorers (urbex). Think old-school gaming community meets underground exploration culture.
 
