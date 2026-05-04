@@ -429,4 +429,15 @@ router.delete("/admin/threads/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+router.post("/admin/threads/:id/lock", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id ?? "", 10);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const { isLocked } = req.body as { isLocked?: boolean };
+  await db
+    .update(threadsTable)
+    .set({ isLocked: !!isLocked })
+    .where(eq(threadsTable.id, id));
+  res.json({ id, isLocked: !!isLocked });
+});
+
 export default router;

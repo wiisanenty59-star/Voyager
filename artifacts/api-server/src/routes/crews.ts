@@ -27,6 +27,8 @@ async function loadCrewWithMembers(crewId: number) {
       creatorId: crewsTable.creatorId,
       creatorUsername: usersTable.username,
       roomId: crewsTable.roomId,
+      meetupAt: crewsTable.meetupAt,
+      meetupNote: crewsTable.meetupNote,
       createdAt: crewsTable.createdAt,
     })
     .from(crewsTable)
@@ -75,7 +77,6 @@ router.post("/crews", requireAuth, async (req, res): Promise<void> => {
   }
   const user = (req as AuthedRequest).user;
 
-  // Lookup additional members by username
   const memberUsernames = (parsed.data.memberUsernames ?? []).filter(
     (u) => u && u !== user.username,
   );
@@ -87,7 +88,6 @@ router.post("/crews", requireAuth, async (req, res): Promise<void> => {
       .where(inArray(usersTable.username, memberUsernames));
   }
 
-  // Create the backing chat room
   const slug = `crew-${Date.now().toString(36)}-${Math.floor(Math.random() * 10000).toString(36)}`;
   const [room] = await db
     .insert(chatRoomsTable)
@@ -117,7 +117,6 @@ router.post("/crews", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  // Add creator + extras
   const allMemberIds = Array.from(
     new Set([user.id, ...extraMembers.map((m) => m.id)]),
   );
@@ -130,6 +129,105 @@ router.post("/crews", requireAuth, async (req, res): Promise<void> => {
 
   const full = await loadCrewWithMembers(crew.id);
   res.status(201).json(full);
+});
+
+// Edit crew (creator only) - name, description, meetupAt, meetupNote
+router.patch("/crews/:id", requireAuth, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id ?? "", 10);
+  if (!id) {
+    res.status(400).json({ error: "Invalid crew id" });
+    return;
+  }
+  const user = (req as AuthedRequest).user;
+
+  const [crew] = await db
+    .select()
+    .from(crewsTable)
+    .where(eq(crewsTable.id, id));
+  if (!crew) {
+    res.status(404).json({ error: "Crew not found" });
+    return;
+  }
+  if (crew.creatorId !== user.id && user.role !== "admin") {
+    res.status(403).json({ error: "Only the crew creator can edit this crew" });
+    return;
+  }
+
+  const body = req.body as {
+    name?: string;
+    description?: string;
+    meetupAt?: string | null;
+    meetupNote?: string | null;
+  };
+
+  const updates: Partial<typeof crewsTable.$inferInsert> = {};
+  if (typeof body.name === "string" && body.name.trim()) updates.name = body.name.trim();
+  if (typeof body.description === "string") updates.description = body.description;
+  if ("meetupAt" in body) {
+    updates.meetupAt = body.meetupAt ? new Date(body.meetupAt) : null;
+  }
+  if ("meetupNote" in body) {
+    updates.meetupNote = body.meetupNote ?? null;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "Nothing to update" });
+    return;
+  }
+
+  await db.update(crewsTable).set(updates).where(eq(crewsTable.id, id));
+
+  // Also sync name to the backing chat room
+  if (updates.name) {
+    await db
+      .update(chatRoomsTable)
+      .set({ name: updates.name })
+      .where(eq(chatRoomsTable.id, crew.roomId));
+  }
+
+  const full = await loadCrewWithMembers(id);
+  res.json(full);
+});
+
+// Add member to crew (creator only)
+router.post("/crews/:id/members", requireAuth, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id ?? "", 10);
+  if (!id) {
+    res.status(400).json({ error: "Invalid crew id" });
+    return;
+  }
+  const user = (req as AuthedRequest).user;
+
+  const [crew] = await db.select().from(crewsTable).where(eq(crewsTable.id, id));
+  if (!crew) {
+    res.status(404).json({ error: "Crew not found" });
+    return;
+  }
+  if (crew.creatorId !== user.id && user.role !== "admin") {
+    res.status(403).json({ error: "Only the crew creator can add members" });
+    return;
+  }
+
+  const { username } = req.body as { username?: string };
+  if (!username?.trim()) {
+    res.status(400).json({ error: "Username required" });
+    return;
+  }
+
+  const [newUser] = await db.select().from(usersTable).where(eq(usersTable.username, username.trim()));
+  if (!newUser) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  try {
+    await db.insert(crewMembersTable).values({ crewId: id, userId: newUser.id });
+  } catch {
+    // Already a member
+  }
+
+  const full = await loadCrewWithMembers(id);
+  res.json(full);
 });
 
 router.get(
@@ -265,6 +363,5 @@ router.post(
 
 export default router;
 
-// Suppress unused warning for `asc` and `sql`
 void asc;
 void sql;

@@ -1,27 +1,68 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
-import { useGetThread, useCreatePost, getGetThreadQueryKey } from "@workspace/api-client-react";
+import { useGetThread, useCreatePost, getGetThreadQueryKey, useGetCurrentUser, customFetch } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Pin, Lock, Shield, MapPin, Terminal, Send } from "lucide-react";
+import { Pin, Lock, Shield, MapPin, Terminal, Send, Edit2, X, Check } from "lucide-react";
 import { VoteButtons } from "@/components/vote-buttons";
+import { useToast } from "@/hooks/use-toast";
 
 export default function ThreadDetail() {
   const params = useParams();
   const id = parseInt(params.id || "0", 10);
   const queryClient = useQueryClient();
-  
+  const { toast } = useToast();
+  const { data: currentUser } = useGetCurrentUser();
+
   const { data, isLoading } = useGetThread(id, {
-    query: { enabled: !!id, queryKey: getGetThreadQueryKey(id) }
+    query: { enabled: !!id, queryKey: getGetThreadQueryKey(id) },
   });
 
   const createPost = useCreatePost();
   const [replyBody, setReplyBody] = useState("");
+
+  // Edit thread state
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const canEdit = !!currentUser && !!data && (
+    currentUser.id === data.thread.authorId || currentUser.role === "admin"
+  );
+
+  const startEdit = () => {
+    if (!data) return;
+    setEditTitle(data.thread.title);
+    setEditBody(data.thread.body);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => setEditing(false);
+
+  const saveEdit = async () => {
+    setSaving(true);
+    try {
+      await customFetch(`/api/threads/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: editTitle, body: editBody }),
+      });
+      queryClient.invalidateQueries({ queryKey: getGetThreadQueryKey(id) });
+      setEditing(false);
+      toast({ title: "Thread updated" });
+    } catch {
+      toast({ title: "Error", description: "Could not save edits.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -45,15 +86,11 @@ export default function ThreadDetail() {
   const handleReply = (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyBody.trim()) return;
-
-    createPost.mutate({ 
-      id, 
-      data: { body: replyBody } 
-    }, {
+    createPost.mutate({ id, data: { body: replyBody } }, {
       onSuccess: () => {
         setReplyBody("");
         queryClient.invalidateQueries({ queryKey: getGetThreadQueryKey(id) });
-      }
+      },
     });
   };
 
@@ -64,7 +101,7 @@ export default function ThreadDetail() {
         <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
           <Terminal className="w-48 h-48 text-primary" />
         </div>
-        
+
         <div className="relative z-10">
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <Link href={`/category/${thread.categorySlug}`}>
@@ -92,9 +129,19 @@ export default function ThreadDetail() {
             )}
           </div>
 
-          <h1 className="font-serif text-3xl md:text-4xl text-foreground tracking-widest uppercase mb-6 leading-tight">
-            {thread.title}
-          </h1>
+          {editing ? (
+            <div className="space-y-3 mb-6">
+              <Input
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                className="font-serif text-xl uppercase tracking-widest rounded-none bg-background border-primary/40"
+              />
+            </div>
+          ) : (
+            <h1 className="font-serif text-3xl md:text-4xl text-foreground tracking-widest uppercase mb-6 leading-tight">
+              {thread.title}
+            </h1>
+          )}
 
           <div className="flex items-center gap-4 border-t border-border/50 pt-4">
             <Avatar className="h-10 w-10 rounded-none border border-border">
@@ -109,14 +156,40 @@ export default function ThreadDetail() {
                 INIT: {new Date(thread.createdAt).toLocaleString()} // VIEWS: {thread.viewCount}
               </div>
             </div>
-            <VoteButtons kind="thread" id={thread.id} />
+            <div className="flex items-center gap-2">
+              {canEdit && !editing && (
+                <Button variant="ghost" size="icon" onClick={startEdit} className="h-8 w-8 rounded-none hover:bg-primary/20 hover:text-primary" title="Edit thread">
+                  <Edit2 className="w-4 h-4" />
+                </Button>
+              )}
+              {editing && (
+                <>
+                  <Button variant="ghost" size="icon" onClick={cancelEdit} className="h-8 w-8 rounded-none hover:bg-destructive/20 hover:text-destructive">
+                    <X className="w-4 h-4" />
+                  </Button>
+                  <Button size="icon" onClick={saveEdit} disabled={saving} className="h-8 w-8 rounded-none bg-primary hover:bg-primary/90">
+                    <Check className="w-4 h-4" />
+                  </Button>
+                </>
+              )}
+              <VoteButtons kind="thread" id={thread.id} />
+            </div>
           </div>
         </div>
       </div>
 
       {/* Original Post Body */}
       <div className="border border-border/50 bg-background p-6 md:p-8 prose prose-invert prose-p:font-mono prose-p:text-sm prose-p:leading-relaxed max-w-none">
-        <p className="whitespace-pre-wrap">{thread.body}</p>
+        {editing ? (
+          <Textarea
+            value={editBody}
+            onChange={e => setEditBody(e.target.value)}
+            rows={10}
+            className="w-full font-mono text-sm bg-background border-primary/40 rounded-none focus-visible:ring-primary/50 not-prose"
+          />
+        ) : (
+          <p className="whitespace-pre-wrap">{thread.body}</p>
+        )}
       </div>
 
       {/* Replies */}
@@ -137,7 +210,7 @@ export default function ThreadDetail() {
                 </Avatar>
                 <div>
                   <div className="font-mono text-sm text-foreground flex items-center gap-1 uppercase tracking-wider">
-                    {post.authorRole === 'admin' && <Shield className="w-3 h-3 text-primary" />}
+                    {post.authorRole === "admin" && <Shield className="w-3 h-3 text-primary" />}
                     {post.authorUsername}
                   </div>
                   <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider mt-1">
@@ -174,8 +247,8 @@ export default function ThreadDetail() {
               required
             />
             <div className="flex justify-end">
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 disabled={createPost.isPending}
                 className="font-serif tracking-widest uppercase rounded-none w-full sm:w-auto"
               >

@@ -161,6 +161,43 @@ router.get("/threads/:id", async (req, res): Promise<void> => {
   res.json(GetThreadResponse.parse({ thread, posts }));
 });
 
+// Edit own thread (or admin edits any)
+router.patch("/threads/:id", requireAuth, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id ?? "", 10);
+  if (!id) {
+    res.status(400).json({ error: "Invalid thread id" });
+    return;
+  }
+  const user = (req as AuthedRequest).user;
+
+  const [thread] = await db
+    .select()
+    .from(threadsTable)
+    .where(eq(threadsTable.id, id));
+  if (!thread) {
+    res.status(404).json({ error: "Thread not found" });
+    return;
+  }
+  if (thread.authorId !== user.id && user.role !== "admin") {
+    res.status(403).json({ error: "Not allowed" });
+    return;
+  }
+
+  const { title, body } = req.body as { title?: string; body?: string };
+  const updates: Partial<typeof threadsTable.$inferInsert> = {};
+  if (typeof title === "string" && title.trim()) updates.title = title.trim();
+  if (typeof body === "string" && body.trim()) updates.body = body.trim();
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "Nothing to update" });
+    return;
+  }
+
+  await db.update(threadsTable).set(updates).where(eq(threadsTable.id, id));
+  const updated = await loadFullThread(id);
+  res.json(updated);
+});
+
 router.post("/threads/:id/posts", requireAuth, async (req, res): Promise<void> => {
   const params = CreatePostParams.safeParse(req.params);
   if (!params.success) {

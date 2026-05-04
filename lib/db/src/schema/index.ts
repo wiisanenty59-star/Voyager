@@ -10,3 +10,4 @@ export * from "./announcements";
 export * from "./votes";
 export * from "./chat";
 export * from "./messages";
+export * from "./site-settings";

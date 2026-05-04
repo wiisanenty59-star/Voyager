@@ -50,6 +50,8 @@ export const crewsTable = pgTable("crews", {
   roomId: integer("room_id")
     .notNull()
     .references(() => chatRoomsTable.id, { onDelete: "cascade" }),
+  meetupAt: timestamp("meetup_at", { withTimezone: true }),
+  meetupNote: text("meetup_note"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

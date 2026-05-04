@@ -12,6 +12,7 @@ import votesRouter from "./votes";
 import chatRouter from "./chat";
 import crewsRouter from "./crews";
 import messagesRouter from "./messages";
+import settingsRouter from "./settings";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(votesRouter);
 router.use(chatRouter);
 router.use(crewsRouter);
 router.use(messagesRouter);
+router.use(settingsRouter);
 
 export default router;
