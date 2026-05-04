@@ -95,6 +95,13 @@ export default function CrewsPage() {
             Private squads for planning trips off the public boards.
           </p>
         </div>
+        {user && (user as { trustLevel?: number }).trustLevel !== undefined && (user as { trustLevel?: number }).trustLevel! < 2 ? (
+          <div className="text-right">
+            <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest border border-border/30 px-3 py-2 bg-card/20">
+              ★ Honored rank (Trust Lvl 2+) required to form crews
+            </div>
+          </div>
+        ) : (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button className="font-serif tracking-widest uppercase rounded-none">
@@ -115,6 +122,7 @@ export default function CrewsPage() {
             </form>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       <div className="grid md:grid-cols-[260px_1fr] gap-4">

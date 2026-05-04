@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Shield, KeyRound, Map, MapPin, MessageSquare, Trash2, Edit2, Plus,
-  Copy, Ban, UserCheck, FileText, Settings,
+  Copy, Ban, UserCheck, FileText, Settings, Pin, PinOff, BellRing,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,6 +49,7 @@ export default function Admin() {
           <TabsTrigger value="locations" className="rounded-none font-mono text-xs uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><MapPin className="w-4 h-4 mr-2" /> Locations</TabsTrigger>
           <TabsTrigger value="threads" className="rounded-none font-mono text-xs uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><MessageSquare className="w-4 h-4 mr-2" /> Threads</TabsTrigger>
           <TabsTrigger value="guidelines" className="rounded-none font-mono text-xs uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><FileText className="w-4 h-4 mr-2" /> Guidelines</TabsTrigger>
+          <TabsTrigger value="noticeboard" className="rounded-none font-mono text-xs uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><BellRing className="w-4 h-4 mr-2" /> Noticeboard</TabsTrigger>
         </TabsList>
 
         <div className="mt-6 border border-border/50 bg-card/20 p-6 backdrop-blur-sm min-h-[500px]">
@@ -59,6 +60,7 @@ export default function Admin() {
           <TabsContent value="locations" className="m-0"><LocationsTab /></TabsContent>
           <TabsContent value="threads" className="m-0"><ThreadsTab /></TabsContent>
           <TabsContent value="guidelines" className="m-0"><GuidelinesTab /></TabsContent>
+          <TabsContent value="noticeboard" className="m-0"><NoticeboardTab /></TabsContent>
         </div>
       </Tabs>
     </div>
@@ -742,6 +744,112 @@ function ThreadsTab() {
           ))}
         </TableBody>
       </Table>
+    </div>
+  );
+}
+
+// ─── Noticeboard ─────────────────────────────────────────────────────────────
+
+type AdminNotice = {
+  id: number; title: string; body: string;
+  authorUsername: string | null; isPinned: boolean; createdAt: string;
+};
+
+function NoticeboardTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const { data: notices, isLoading } = useQuery<AdminNotice[]>({
+    queryKey: ["admin-notices"],
+    queryFn: () => customFetch<AdminNotice[]>("/api/admin/notices"),
+  });
+
+  const handlePost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setSending(true);
+    try {
+      await customFetch("/api/admin/notices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, body }),
+      });
+      setTitle(""); setBody("");
+      queryClient.invalidateQueries({ queryKey: ["admin-notices"] });
+      toast({ title: "Notice posted" });
+    } catch {
+      toast({ title: "Error", description: "Could not post notice.", variant: "destructive" });
+    } finally { setSending(false); }
+  };
+
+  const handlePin = async (notice: AdminNotice) => {
+    await customFetch(`/api/admin/notices/${notice.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPinned: !notice.isPinned }),
+    });
+    queryClient.invalidateQueries({ queryKey: ["admin-notices"] });
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Delete this notice?")) return;
+    await customFetch(`/api/admin/notices/${id}`, { method: "DELETE" });
+    queryClient.invalidateQueries({ queryKey: ["admin-notices"] });
+    toast({ title: "Notice deleted" });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-1">
+        <h3 className="font-serif text-lg text-primary tracking-widest uppercase">Admin Noticeboard</h3>
+        <p className="font-mono text-xs text-muted-foreground uppercase tracking-wider">
+          Internal bulletin board — visible to admins only. Pin important notices to the top.
+        </p>
+      </div>
+
+      {/* Post form */}
+      <form onSubmit={handlePost} className="space-y-3 border border-border/50 bg-card/30 p-4">
+        <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Notice title" className="font-mono rounded-none bg-background/50" required />
+        <Textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Notice body (optional)..." rows={3} className="font-mono rounded-none bg-background/50 text-sm" />
+        <Button type="submit" disabled={sending} size="sm" className="font-mono uppercase tracking-wider rounded-none">
+          <Plus className="w-4 h-4 mr-2" />{sending ? "Posting..." : "Post Notice"}
+        </Button>
+      </form>
+
+      {/* Notices list */}
+      <div className="space-y-3">
+        {isLoading ? (
+          [1,2,3].map(i => <Skeleton key={i} className="h-20 w-full" />)
+        ) : !notices?.length ? (
+          <div className="text-muted-foreground font-mono text-xs italic p-4 border border-border/30">No notices yet.</div>
+        ) : (
+          notices.map(notice => (
+            <div key={notice.id} className={`border p-4 space-y-2 ${notice.isPinned ? "border-primary/40 bg-primary/5" : "border-border/50 bg-card/20"}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {notice.isPinned && <Pin className="w-3.5 h-3.5 text-primary shrink-0" />}
+                  <span className="font-serif text-base text-foreground tracking-wider">{notice.title}</span>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" onClick={() => handlePin(notice)} className="h-7 w-7 rounded-none hover:bg-primary/20 hover:text-primary" title={notice.isPinned ? "Unpin" : "Pin"}>
+                    {notice.isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => handleDelete(notice.id)} className="h-7 w-7 rounded-none hover:bg-destructive/20 hover:text-destructive">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+              {notice.body && <p className="font-mono text-xs text-muted-foreground whitespace-pre-wrap">{notice.body}</p>}
+              <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">
+                {notice.authorUsername} // {new Date(notice.createdAt).toLocaleString()}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }

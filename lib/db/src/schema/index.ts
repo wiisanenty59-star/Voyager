@@ -11,3 +11,4 @@ export * from "./votes";
 export * from "./chat";
 export * from "./messages";
 export * from "./site-settings";
+export * from "./admin-notices";

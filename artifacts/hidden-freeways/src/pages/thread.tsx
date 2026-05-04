@@ -4,13 +4,14 @@ import { useGetThread, useCreatePost, getGetThreadQueryKey, useGetCurrentUser, c
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Pin, Lock, Shield, MapPin, Terminal, Send, Edit2, X, Check } from "lucide-react";
+import { Pin, Lock, Shield, MapPin, Terminal, Send, Edit2, X, Check, Star } from "lucide-react";
 import { VoteButtons } from "@/components/vote-buttons";
+import { PostBody } from "@/components/bbcode";
+import { PostEditor } from "@/components/post-toolbar";
 import { useToast } from "@/hooks/use-toast";
 
 export default function ThreadDetail() {
@@ -179,16 +180,15 @@ export default function ThreadDetail() {
       </div>
 
       {/* Original Post Body */}
-      <div className="border border-border/50 bg-background p-6 md:p-8 prose prose-invert prose-p:font-mono prose-p:text-sm prose-p:leading-relaxed max-w-none">
+      <div className="border border-border/50 bg-background p-6 md:p-8">
         {editing ? (
-          <Textarea
+          <PostEditor
             value={editBody}
-            onChange={e => setEditBody(e.target.value)}
-            rows={10}
-            className="w-full font-mono text-sm bg-background border-primary/40 rounded-none focus-visible:ring-primary/50 not-prose"
+            onChange={setEditBody}
+            rows={12}
           />
         ) : (
-          <p className="whitespace-pre-wrap">{thread.body}</p>
+          <PostBody text={thread.body} />
         )}
       </div>
 
@@ -213,17 +213,21 @@ export default function ThreadDetail() {
                     {post.authorRole === "admin" && <Shield className="w-3 h-3 text-primary" />}
                     {post.authorUsername}
                   </div>
-                  <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider mt-1">
+                  <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider mt-1 flex items-center gap-1">
                     {post.authorRole}
+                    {(post as { authorTrustLevel?: number }).authorTrustLevel !== undefined &&
+                      (post as { authorTrustLevel?: number }).authorTrustLevel! >= 2 && (
+                      <Star className="w-2.5 h-2.5 text-yellow-500 fill-yellow-500" />
+                    )}
                   </div>
                   <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider mt-1">
                     {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
                   </div>
                 </div>
               </div>
-              <div className="flex-1 min-w-0 prose prose-invert prose-p:font-mono prose-p:text-sm prose-p:leading-relaxed">
-                <p className="whitespace-pre-wrap">{post.body}</p>
-                <div className="not-prose mt-3 flex justify-end">
+              <div className="flex-1 min-w-0">
+                <PostBody text={post.body} />
+                <div className="mt-3 flex justify-end">
                   <VoteButtons kind="post" id={post.id} />
                 </div>
               </div>
@@ -239,11 +243,11 @@ export default function ThreadDetail() {
             <Terminal className="w-4 h-4 mr-2 text-primary" /> Transmit Reply
           </h4>
           <form onSubmit={handleReply} className="space-y-4">
-            <Textarea
+            <PostEditor
               value={replyBody}
-              onChange={(e) => setReplyBody(e.target.value)}
+              onChange={setReplyBody}
               placeholder="Enter transmission data..."
-              className="min-h-[150px] font-mono text-sm bg-background/50 border-border rounded-none focus-visible:ring-primary/50"
+              rows={6}
               required
             />
             <div className="flex justify-end">

@@ -13,6 +13,8 @@ import chatRouter from "./chat";
 import crewsRouter from "./crews";
 import messagesRouter from "./messages";
 import settingsRouter from "./settings";
+import onlineRouter from "./online";
+import adminNoticesRouter from "./admin-notices";
 
 const router: IRouter = Router();
 
@@ -30,5 +32,7 @@ router.use(chatRouter);
 router.use(crewsRouter);
 router.use(messagesRouter);
 router.use(settingsRouter);
+router.use(onlineRouter);
+router.use(adminNoticesRouter);
 
 export default router;

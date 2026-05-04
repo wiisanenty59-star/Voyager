@@ -28,6 +28,11 @@ export async function loadUser(
     .where(eq(usersTable.id, userId));
   if (user && !user.isBanned) {
     (req as AuthedRequest).user = user;
+    // Update lastSeenAt non-blocking (fire and forget)
+    db.update(usersTable)
+      .set({ lastSeenAt: new Date() })
+      .where(eq(usersTable.id, userId))
+      .catch(() => undefined);
   }
   next();
 }
@@ -66,6 +71,7 @@ export function serializeUser(user: User) {
     id: user.id,
     username: user.username,
     role: user.role,
+    trustLevel: user.trustLevel,
     avatarUrl: user.avatarUrl,
     createdAt: user.createdAt,
   };

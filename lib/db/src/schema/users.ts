@@ -10,6 +10,7 @@ export const usersTable = pgTable("users", {
   trustLevel: integer("trust_level").notNull().default(0),
   postCount: integer("post_count").notNull().default(0),
   isBanned: boolean("is_banned").notNull().default(false),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

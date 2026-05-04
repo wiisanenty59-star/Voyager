@@ -8,7 +8,7 @@ A retro Xfire-style invite-only gated community web app for urban explorers (urb
 - `artifacts/hidden-freeways` — React + Vite frontend (port 19571, preview path `/`)
 - `artifacts/api-server` — Express 5 REST API (port 8080, path `/api`)
 - `lib/db` — Drizzle ORM schema + PostgreSQL client
-- `lib/api-spec` — OpenAPI 3.1 spec (2211 lines)
+- `lib/api-spec` — OpenAPI 3.1 spec
 - `lib/api-client-react` — Generated React Query hooks (Orval)
 - `lib/api-zod` — Generated Zod schemas (Orval)
 - `scripts` — Seed and utility scripts
@@ -17,25 +17,41 @@ A retro Xfire-style invite-only gated community web app for urban explorers (urb
 
 - **Frontend:** React 19, Vite 7, Tailwind v4, shadcn/radix UI, wouter routing, @tanstack/react-query, leaflet/react-leaflet maps, framer-motion
 - **Backend:** Express 5, express-session + connect-pg-simple, bcryptjs auth, pino logging
-- **Database:** PostgreSQL (Replit managed), Drizzle ORM, drizzle-kit migrations
+- **Database:** PostgreSQL (Replit managed), Drizzle ORM
 
 ## Features
 
 - **Invite-only auth** — username/password login, invite code registration
-- **Forum** — categories, threads, posts, upvote/downvote voting system
-- **Real-time-style chat rooms** — public rooms + trust-gated rooms
-- **Crews** — private group chats
+- **Forum** — categories (with sub-categories), threads, posts, upvote/downvote voting
+- **BBCode formatting** — Bold, italic, underline, strike, color, size, image embed, links, quotes, code blocks
+- **Real-time-style chat rooms** — public rooms + trust-gated rooms, crew rooms
+- **Crews** — private group chats, honor rank required (trust level 2+) to create
 - **Direct Messages** — private 1-on-1 messaging
-- **Location sharing** — interactive Leaflet maps, trust-level gated, per US state
+- **Location sharing** — interactive Leaflet maps, per US state (all 50 states)
 - **Announcements** — admin-broadcasted site-wide banners
-- **Admin panel** — user management, invite generation, role/trust assignment
-- **Activity feed** — recent activity across the site
-- **Trust/role system** — trust levels 0-3, roles: member/moderator/admin
+- **Admin panel** — user management, invite generation, categories/states/locations/threads control, guidelines editor, admin noticeboard
+- **Admin Noticeboard** — internal admin-only bulletin board with pin support
+- **Online presence** — lastSeenAt tracking, online users widget in sidebar + nav indicator
+- **Reddit-style home sidebar** — online users list, active crews, activity feed
+- **Trust/role system** — trust levels 0-5, roles: member/moderator/admin
+- **Honor rank** — trust level 2+ unlocks crew creation
+- **Activity feed** — recent threads and replies
+
+## Seed Script
+
+Run to populate all 50 US states, 8 categories (with sub-categories), site settings, chat rooms:
+
+```bash
+pnpm --filter @workspace/scripts run seed
+# Add --fresh to wipe and reseed from scratch
+pnpm --filter @workspace/scripts run seed --fresh
+```
 
 ## Environment Variables
 
 - `SESSION_SECRET` — Express session signing secret (set in Replit Secrets)
 - `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` — auto-set by Replit DB
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` — override seed defaults
 
 ## Default Admin Credentials
 
@@ -44,39 +60,31 @@ A retro Xfire-style invite-only gated community web app for urban explorers (urb
 
 Change immediately after first login via the admin panel.
 
-## Seed Data
+## DB Schema Tables
 
-- 12 Midwest US states seeded
-- 6 forum categories (General, Trip Reports, Scouting, History, Gear, Safety)
-- 3 chat rooms (Lobby, Field Talk, Trusted Only)
-- 1 sample location (Damen Silos, Chicago)
-- 1 welcome thread + pinned post
-- 1 sample announcement
-- 1 sample invite code (printed during seed)
+- `users` — auth, roles, trust levels, lastSeenAt
+- `invites` — invite codes (single/multi-use)
+- `categories` — forum categories with parentId for sub-categories
+- `states` — all 50 US states with map center/zoom
+- `locations` — urbex sites linked to states
+- `threads` — forum threads (pinned, locked, viewCount)
+- `posts` — replies, supports BBCode body
+- `announcements` — site-wide banners
+- `votes` — upvote/downvote on threads and posts
+- `chat_rooms` — lobby, field-talk, trusted-only rooms
+- `room_messages` — chat messages
+- `crews` — private crew groups (honor-gated creation)
+- `crew_members` — crew membership
+- `messages` — direct messages
+- `site_settings` — key/value store for guidelines, rules, welcome message
+- `admin_notices` — admin-only internal noticeboard
 
-## Running Locally
+## API Routes (key ones)
 
-Both workflows start automatically:
-- `artifacts/api-server: API Server` — builds and starts the API
-- `artifacts/hidden-freeways: web` — starts the Vite dev server
-
-To re-seed: `pnpm --filter @workspace/scripts run seed`
-To push schema changes: `pnpm --filter @workspace/db run push`
-
-## API Routes (base: `/api`)
-
-- `POST /auth/register` — register with invite code
-- `POST /auth/login` / `POST /auth/logout` / `GET /auth/me`
-- `GET/POST /categories` — forum categories
-- `GET/POST /threads` — forum threads
-- `GET/POST /threads/:id/posts` — thread replies
-- `POST /votes/thread/:id` / `POST /votes/post/:id` — voting
-- `GET /states` / `GET /states/:slug/locations` — location browsing
-- `POST /locations` — submit a location (trusted users)
-- `GET /chat/rooms` / `GET /chat/rooms/:slug/messages` / `POST /chat/rooms/:slug/messages` — chat
-- `GET/POST /crews` — crew management
-- `GET/POST /messages` — direct messages
-- `GET /announcements` — site announcements
-- `GET /feed` — activity feed
-- `GET/POST/PATCH /admin/*` — admin operations (admin only)
-- `GET /invites` / `POST /invites` — invite code management
+- `GET /api/online` — online users (lastSeenAt within 5 min), auth required
+- `GET/POST /api/admin/notices` — admin noticeboard CRUD
+- `PATCH/DELETE /api/admin/notices/:id` — pin/unpin/delete notices
+- `GET/PATCH /api/settings` — site settings (guidelines, rules, welcome)
+- `PATCH /api/threads/:id` — author/admin thread edit
+- `PATCH /api/crews/:id` — creator crew edit + meetup scheduling
+- `POST /api/crews/:id/members` — add member to crew

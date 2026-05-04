@@ -1,17 +1,28 @@
 import { Link, useLocation } from "wouter";
-import { useGetCurrentUser, useLogout, getGetCurrentUserQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useGetCurrentUser, useLogout, getGetCurrentUserQueryKey, customFetch } from "@workspace/api-client-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Shield, LogOut, PlusSquare, MessageSquare, Users, Mail } from "lucide-react";
+import { Shield, LogOut, PlusSquare, MessageSquare, Users, Mail, LayoutGrid, Circle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+
+function useOnlineCount() {
+  const { data: authUser } = useGetCurrentUser();
+  return useQuery({
+    queryKey: ["online-count"],
+    queryFn: () => customFetch<{ count: number; users: { id: number; username: string }[] }>("/api/online"),
+    refetchInterval: 30_000,
+    enabled: !!authUser,
+  });
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading } = useGetCurrentUser();
   const logout = useLogout();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { data: onlineData } = useOnlineCount();
 
   const handleLogout = () => {
     logout.mutate(undefined, {
@@ -33,11 +44,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <span className="text-primary font-serif text-2xl tracking-widest uppercase">HiddenFreeways</span>
           </Link>
 
-          <nav className="flex items-center gap-4">
+          <nav className="flex items-center gap-2">
             {isLoading ? (
               <Skeleton className="h-8 w-8 rounded-full bg-muted/50" />
             ) : user ? (
               <>
+                <Link href="/">
+                  <Button variant="ghost" size="sm" className="hidden md:flex font-mono uppercase tracking-wider text-xs">
+                    <LayoutGrid className="h-4 w-4 mr-2" /> Forum
+                  </Button>
+                </Link>
                 <Link href="/chat">
                   <Button variant="ghost" size="sm" className="hidden md:flex font-mono uppercase tracking-wider text-xs">
                     <MessageSquare className="h-4 w-4 mr-2" /> Chat
@@ -53,8 +69,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <Mail className="h-4 w-4 mr-2" /> DMs
                   </Button>
                 </Link>
+
+                {/* Online indicator */}
+                {onlineData && (
+                  <div className="hidden md:flex items-center gap-1 px-2 py-1 border border-border/30 bg-card/30">
+                    <Circle className="h-2 w-2 text-green-500 fill-green-500 animate-pulse" />
+                    <span className="font-mono text-[10px] text-green-500 uppercase tracking-widest">{onlineData.count} online</span>
+                  </div>
+                )}
+
                 <Link href="/new-thread">
-                  <Button variant="outline" size="sm" className="hidden sm:flex border-primary/20 hover:border-primary/50 text-primary">
+                  <Button variant="outline" size="sm" className="hidden sm:flex border-primary/20 hover:border-primary/50 text-primary rounded-none">
                     <PlusSquare className="h-4 w-4 mr-2" />
                     New Thread
                   </Button>
@@ -77,6 +102,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         <p className="text-sm font-medium leading-none font-mono">{user.username}</p>
                         <p className="text-xs leading-none text-muted-foreground uppercase tracking-wider">
                           {user.role}
+                          {(user as { trustLevel?: number }).trustLevel && (user as { trustLevel?: number }).trustLevel! >= 2 && (
+                            <span className="ml-2 text-yellow-500">★ Honored</span>
+                          )}
                         </p>
                       </div>
                     </DropdownMenuLabel>
@@ -93,6 +121,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       <Link href="/new-thread" className="flex w-full items-center">
                         <PlusSquare className="mr-2 h-4 w-4" />
                         <span>New Thread</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild className="cursor-pointer focus:bg-primary/20 focus:text-primary-foreground rounded-none md:hidden">
+                      <Link href="/" className="flex w-full items-center">
+                        <LayoutGrid className="mr-2 h-4 w-4" />
+                        <span>Forum</span>
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild className="cursor-pointer focus:bg-primary/20 focus:text-primary-foreground rounded-none md:hidden">

@@ -5,10 +5,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Terminal, Send } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PostEditor } from "@/components/post-toolbar";
 
 export default function NewThread() {
   const [, setLocation] = useLocation();
@@ -32,7 +32,8 @@ export default function NewThread() {
 
   const createThread = useCreateThread();
 
-  // If initialLocationId is provided, we would ideally want to pre-select its state, but since we don't have the full location object without fetching it, we'll just allow submitting with the locationId directly. Or we can just let it be.
+  // Only top-level categories for the dropdown
+  const topCategories = categories?.filter(c => !(c as { parentId?: number }).parentId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,7 +86,7 @@ export default function NewThread() {
                     <SelectValue placeholder="Select Channel" />
                   </SelectTrigger>
                   <SelectContent className="bg-card border-border rounded-none">
-                    {categories?.map((cat) => (
+                    {topCategories?.map((cat) => (
                       <SelectItem key={cat.id} value={cat.id.toString()}>{cat.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -131,12 +132,12 @@ export default function NewThread() {
 
           <div className="space-y-2">
             <Label className="font-mono text-xs uppercase text-muted-foreground">Data Payload</Label>
-            <Textarea
-              required
+            <PostEditor
               value={body}
-              onChange={(e) => setBody(e.target.value)}
-              className="bg-background/50 border-border font-mono rounded-none focus-visible:ring-primary/50 min-h-[300px]"
-              placeholder="Enter field notes, access details, status..."
+              onChange={setBody}
+              placeholder="Enter field notes, access details, status... Use the toolbar above to bold, italicize, embed images, etc."
+              rows={12}
+              required
             />
           </div>
 
