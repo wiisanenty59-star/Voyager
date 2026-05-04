@@ -25,6 +25,7 @@ import {
 import {
   Shield, KeyRound, Map, MapPin, MessageSquare, Trash2, Edit2, Plus,
   Copy, Ban, UserCheck, FileText, Settings, Pin, PinOff, BellRing,
+  Radio, Archive, ArchiveRestore, UserX,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,6 +51,7 @@ export default function Admin() {
           <TabsTrigger value="threads" className="rounded-none font-mono text-xs uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><MessageSquare className="w-4 h-4 mr-2" /> Threads</TabsTrigger>
           <TabsTrigger value="guidelines" className="rounded-none font-mono text-xs uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><FileText className="w-4 h-4 mr-2" /> Guidelines</TabsTrigger>
           <TabsTrigger value="noticeboard" className="rounded-none font-mono text-xs uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><BellRing className="w-4 h-4 mr-2" /> Noticeboard</TabsTrigger>
+          <TabsTrigger value="chat" className="rounded-none font-mono text-xs uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><Radio className="w-4 h-4 mr-2" /> Chat Rooms</TabsTrigger>
         </TabsList>
 
         <div className="mt-6 border border-border/50 bg-card/20 p-6 backdrop-blur-sm min-h-[500px]">
@@ -61,6 +63,7 @@ export default function Admin() {
           <TabsContent value="threads" className="m-0"><ThreadsTab /></TabsContent>
           <TabsContent value="guidelines" className="m-0"><GuidelinesTab /></TabsContent>
           <TabsContent value="noticeboard" className="m-0"><NoticeboardTab /></TabsContent>
+          <TabsContent value="chat" className="m-0"><ChatRoomsTab /></TabsContent>
         </div>
       </Tabs>
     </div>
@@ -744,6 +747,305 @@ function ThreadsTab() {
           ))}
         </TableBody>
       </Table>
+    </div>
+  );
+}
+
+// ─── Chat Rooms ───────────────────────────────────────────────────────────────
+
+type AdminChatRoom = {
+  id: number; slug: string; name: string; description: string;
+  kind: string; minTrustLevel: number; isArchived: boolean;
+  memberCount: number; messageCount: number; createdAt: string;
+};
+
+type RoomBan = {
+  id: number; roomSlug: string | null; roomName: string | null;
+  userId: number; username: string | null;
+  bannedUntil: string | null; reason: string; createdAt: string;
+};
+
+function ChatRoomsTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: rooms, isLoading } = useQuery<AdminChatRoom[]>({
+    queryKey: ["admin-chat-rooms"],
+    queryFn: () => customFetch<AdminChatRoom[]>("/api/admin/chat/rooms"),
+  });
+  const { data: bans } = useQuery<RoomBan[]>({
+    queryKey: ["admin-chat-bans"],
+    queryFn: () => customFetch<RoomBan[]>("/api/admin/chat/bans"),
+  });
+
+  // Create room
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newSlug, setNewSlug] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newKind, setNewKind] = useState("public");
+  const [newMinTrust, setNewMinTrust] = useState("0");
+  const [creating, setCreating] = useState(false);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      await customFetch("/api/chat/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName, slug: newSlug, description: newDesc, kind: newKind, minTrustLevel: parseInt(newMinTrust) }),
+      });
+      setCreateOpen(false); setNewName(""); setNewSlug(""); setNewDesc(""); setNewKind("public"); setNewMinTrust("0");
+      queryClient.invalidateQueries({ queryKey: ["admin-chat-rooms"] });
+      toast({ title: "Room created" });
+    } catch { toast({ title: "Error", description: "Could not create room.", variant: "destructive" }); }
+    finally { setCreating(false); }
+  };
+
+  // Edit room
+  const [editRoom, setEditRoom] = useState<AdminChatRoom | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editMinTrust, setEditMinTrust] = useState("0");
+  const [editKind, setEditKind] = useState("public");
+  const [saving, setSaving] = useState(false);
+
+  const openEdit = (r: AdminChatRoom) => {
+    setEditRoom(r); setEditName(r.name); setEditDesc(r.description);
+    setEditMinTrust(String(r.minTrustLevel)); setEditKind(r.kind);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editRoom) return;
+    setSaving(true);
+    try {
+      await customFetch(`/api/chat/rooms/${editRoom.slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editName, description: editDesc, minTrustLevel: parseInt(editMinTrust), kind: editKind }),
+      });
+      setEditRoom(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-chat-rooms"] });
+      toast({ title: "Room updated" });
+    } catch { toast({ title: "Error", description: "Could not update room.", variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const toggleArchive = async (r: AdminChatRoom) => {
+    await customFetch(`/api/chat/rooms/${r.slug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isArchived: !r.isArchived }),
+    });
+    queryClient.invalidateQueries({ queryKey: ["admin-chat-rooms"] });
+    toast({ title: r.isArchived ? "Room restored" : "Room archived" });
+  };
+
+  const unban = async (banId: number) => {
+    await customFetch(`/api/admin/chat/bans/${banId}`, { method: "DELETE" });
+    queryClient.invalidateQueries({ queryKey: ["admin-chat-bans"] });
+    toast({ title: "Ban lifted" });
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h3 className="font-serif text-lg text-primary tracking-widest uppercase">Chat Room Management</h3>
+          <p className="font-mono text-xs text-muted-foreground uppercase tracking-wider">
+            Create, edit, and archive public chat rooms. Crew rooms are managed separately.
+          </p>
+        </div>
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="font-mono uppercase tracking-wider rounded-none shrink-0">
+              <Plus className="w-4 h-4 mr-2" /> New Room
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="rounded-none border-border/50 bg-card max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-serif tracking-widest uppercase">Create Chat Room</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleCreate} className="space-y-3">
+              <div className="space-y-1">
+                <label className="font-mono text-xs uppercase text-muted-foreground">Room Name</label>
+                <Input value={newName} onChange={e => setNewName(e.target.value)} className="rounded-none font-mono" placeholder="General Discussion" required />
+              </div>
+              <div className="space-y-1">
+                <label className="font-mono text-xs uppercase text-muted-foreground">Slug (URL identifier)</label>
+                <Input value={newSlug} onChange={e => setNewSlug(e.target.value)} className="rounded-none font-mono" placeholder="general-discussion" required />
+              </div>
+              <div className="space-y-1">
+                <label className="font-mono text-xs uppercase text-muted-foreground">Description</label>
+                <Input value={newDesc} onChange={e => setNewDesc(e.target.value)} className="rounded-none font-mono" placeholder="Optional description..." />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-mono text-xs uppercase text-muted-foreground">Type</label>
+                  <Select value={newKind} onValueChange={setNewKind}>
+                    <SelectTrigger className="rounded-none font-mono text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="public">Public</SelectItem>
+                      <SelectItem value="trusted">Trusted Only</SelectItem>
+                      <SelectItem value="location">Location Room</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-mono text-xs uppercase text-muted-foreground">Min Trust Level</label>
+                  <Select value={newMinTrust} onValueChange={setNewMinTrust}>
+                    <SelectTrigger className="rounded-none font-mono text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {[0,1,2,3,4,5].map(n => <SelectItem key={n} value={String(n)}>Level {n}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)} className="rounded-none font-mono">Cancel</Button>
+                <Button type="submit" disabled={creating} className="rounded-none font-serif tracking-widest uppercase">Create</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Rooms table */}
+      {isLoading ? (
+        <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-10 w-full" />)}</div>
+      ) : (
+        <div className="border border-border/50 overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border/50 bg-card/40">
+                <TableHead className="font-mono text-xs uppercase text-muted-foreground">Name / Slug</TableHead>
+                <TableHead className="font-mono text-xs uppercase text-muted-foreground">Type</TableHead>
+                <TableHead className="font-mono text-xs uppercase text-muted-foreground">Min Trust</TableHead>
+                <TableHead className="font-mono text-xs uppercase text-muted-foreground">Messages</TableHead>
+                <TableHead className="font-mono text-xs uppercase text-muted-foreground">Status</TableHead>
+                <TableHead className="font-mono text-xs uppercase text-muted-foreground text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rooms?.map(r => (
+                <TableRow key={r.id} className={`border-border/30 ${r.isArchived ? "opacity-50" : ""}`}>
+                  <TableCell>
+                    <div className="font-mono text-sm text-foreground">{r.name}</div>
+                    <div className="font-mono text-[10px] text-muted-foreground uppercase">#{r.slug}</div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="rounded-none font-mono text-[10px] uppercase">{r.kind}</Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{r.minTrustLevel}</TableCell>
+                  <TableCell className="font-mono text-xs">{r.messageCount}</TableCell>
+                  <TableCell>
+                    <Badge variant={r.isArchived ? "secondary" : "outline"} className="rounded-none font-mono text-[10px] uppercase">
+                      {r.isArchived ? "Archived" : "Active"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center gap-1 justify-end">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-none hover:bg-primary/20" onClick={() => openEdit(r)} title="Edit">
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-none hover:bg-muted/40" onClick={() => toggleArchive(r)} title={r.isArchived ? "Restore" : "Archive"}>
+                        {r.isArchived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Edit dialog */}
+      <Dialog open={!!editRoom} onOpenChange={o => { if (!o) setEditRoom(null); }}>
+        <DialogContent className="rounded-none border-border/50 bg-card max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif tracking-widest uppercase">Edit Room — #{editRoom?.slug}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveEdit} className="space-y-3">
+            <div className="space-y-1">
+              <label className="font-mono text-xs uppercase text-muted-foreground">Name</label>
+              <Input value={editName} onChange={e => setEditName(e.target.value)} className="rounded-none font-mono" required />
+            </div>
+            <div className="space-y-1">
+              <label className="font-mono text-xs uppercase text-muted-foreground">Description</label>
+              <Input value={editDesc} onChange={e => setEditDesc(e.target.value)} className="rounded-none font-mono" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="font-mono text-xs uppercase text-muted-foreground">Type</label>
+                <Select value={editKind} onValueChange={setEditKind}>
+                  <SelectTrigger className="rounded-none font-mono text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">Public</SelectItem>
+                    <SelectItem value="trusted">Trusted Only</SelectItem>
+                    <SelectItem value="location">Location Room</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="font-mono text-xs uppercase text-muted-foreground">Min Trust Level</label>
+                <Select value={editMinTrust} onValueChange={setEditMinTrust}>
+                  <SelectTrigger className="rounded-none font-mono text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[0,1,2,3,4,5].map(n => <SelectItem key={n} value={String(n)}>Level {n}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setEditRoom(null)} className="rounded-none font-mono">Cancel</Button>
+              <Button type="submit" disabled={saving} className="rounded-none font-serif tracking-widest uppercase">Save</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Active bans */}
+      <div className="space-y-3">
+        <h4 className="font-serif text-base text-primary tracking-widest uppercase flex items-center gap-2">
+          <UserX className="w-4 h-4" /> Active Kicks / Bans
+        </h4>
+        {!bans?.length ? (
+          <div className="font-mono text-xs text-muted-foreground italic p-3 border border-border/30">No active bans.</div>
+        ) : (
+          <div className="border border-border/50 overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border/50 bg-card/40">
+                  <TableHead className="font-mono text-xs uppercase text-muted-foreground">User</TableHead>
+                  <TableHead className="font-mono text-xs uppercase text-muted-foreground">Room</TableHead>
+                  <TableHead className="font-mono text-xs uppercase text-muted-foreground">Expires</TableHead>
+                  <TableHead className="font-mono text-xs uppercase text-muted-foreground text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {bans.map(ban => (
+                  <TableRow key={ban.id} className="border-border/30">
+                    <TableCell className="font-mono text-xs">{ban.username}</TableCell>
+                    <TableCell className="font-mono text-xs">#{ban.roomSlug}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {ban.bannedUntil ? new Date(ban.bannedUntil).toLocaleString() : "Permanent"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => unban(ban.id)} className="h-7 rounded-none font-mono text-[10px] uppercase hover:bg-green-500/20 hover:text-green-400">
+                        Lift Ban
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

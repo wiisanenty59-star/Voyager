@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Users, Plus, Send, Shield, Edit2, Calendar, MapPin, UserPlus } from "lucide-react";
+import { Users, Plus, Send, Shield, Edit2, Calendar, MapPin, UserPlus, Heart } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 
@@ -38,7 +38,42 @@ type RoomMessage = {
   authorUsername: string;
   authorTrustLevel: number;
   createdAt: string;
+  likeCount: number;
+  likedByMe: boolean;
 };
+type LocationResult = {
+  id: number;
+  name: string;
+  city: string | null;
+  stateSlug: string | null;
+  stateName: string | null;
+};
+
+function renderBody(body: string) {
+  const parts = body.split(/(\[loc:\d+:[^\]]+\])/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const m = part.match(/^\[loc:(\d+):([^\]]+)\]$/);
+        if (m) {
+          const href = `/location/${m[1]}`;
+          return (
+            <a
+              key={i}
+              href={href}
+              onClick={(e) => { e.preventDefault(); window.location.href = href; }}
+              className="inline-flex items-center gap-1 border border-primary/50 bg-primary/10 text-primary font-mono text-[10px] uppercase tracking-wider hover:bg-primary/20 cursor-pointer mx-0.5 px-1.5 py-0.5"
+            >
+              <MapPin className="w-2.5 h-2.5" />
+              {m[2]}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
 
 export default function CrewsPage() {
   const [crews, setCrews] = useState<Crew[]>([]);
@@ -182,7 +217,6 @@ function CrewDetail({
 
   const isCreator = currentUserId === crew.creatorId;
 
-  // Edit state
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState(crew.name);
   const [editDesc, setEditDesc] = useState(crew.description);
@@ -190,10 +224,14 @@ function CrewDetail({
   const [editMeetupNote, setEditMeetupNote] = useState(crew.meetupNote ?? "");
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Add member state
   const [addOpen, setAddOpen] = useState(false);
   const [newMember, setNewMember] = useState("");
   const [addingMember, setAddingMember] = useState(false);
+
+  // Location autocomplete
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationResults, setLocationResults] = useState<LocationResult[]>([]);
+  const [showLocations, setShowLocations] = useState(false);
 
   const openEdit = () => {
     setEditName(crew.name);
@@ -277,20 +315,69 @@ function CrewDetail({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages.length]);
 
+  useEffect(() => {
+    if (!locationQuery) { setLocationResults([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await customFetch<LocationResult[]>(
+          `/api/chat/location-search?q=${encodeURIComponent(locationQuery)}`
+        );
+        setLocationResults(Array.isArray(res) ? res : []);
+      } catch { setLocationResults([]); }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [locationQuery]);
+
+  function handleBodyChange(val: string) {
+    setBody(val);
+    const match = val.match(/#(\w*)$/);
+    if (match !== null) {
+      setLocationQuery(match[1] ?? "");
+      setShowLocations(true);
+    } else {
+      setShowLocations(false);
+      setLocationQuery("");
+    }
+  }
+
+  function pickLocation(loc: LocationResult) {
+    setBody(b => b.replace(/#\w*$/, `[loc:${loc.id}:${loc.name}]`));
+    setShowLocations(false);
+    setLocationQuery("");
+    setLocationResults([]);
+  }
+
   async function send(e: React.FormEvent) {
     e.preventDefault();
     if (!body.trim() || sending) return;
     setSending(true);
     try {
-      await customFetch(`/api/crews/${crew.id}/messages`, {
+      const msg = await customFetch<RoomMessage>(`/api/crews/${crew.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
       });
       setBody("");
+      setMessages(prev => {
+        const merged = [...prev, msg];
+        lastIdRef.current = Math.max(...merged.map(m => m.id));
+        return merged;
+      });
     } finally {
       setSending(false);
     }
+  }
+
+  async function toggleLike(msgId: number) {
+    try {
+      const res = await customFetch<{ liked: boolean; count: number }>(
+        `/api/crews/${crew.id}/messages/${msgId}/like`,
+        { method: "POST" }
+      );
+      setMessages(prev =>
+        prev.map(m => m.id === msgId ? { ...m, likedByMe: res.liked, likeCount: res.count } : m)
+      );
+    } catch {}
   }
 
   return (
@@ -352,32 +439,80 @@ function CrewDetail({
           messages.map(m => {
             const mine = currentUserId === m.authorId;
             return (
-              <div key={m.id} className="border-l-2 border-border/40 pl-3 hover:border-primary/40 transition-colors">
+              <div key={m.id} className="border-l-2 border-border/40 pl-3 hover:border-primary/40 transition-colors group">
                 <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
                   <span className={mine ? "text-primary" : "text-foreground"}>{m.authorUsername}</span>
                   <span className="text-muted-foreground text-[10px]">
                     {formatDistanceToNow(new Date(m.createdAt), { addSuffix: true })}
                   </span>
+                  <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => toggleLike(m.id)}
+                      className={`flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 border transition-colors ${
+                        m.likedByMe
+                          ? "border-red-400/60 text-red-400 bg-red-400/10"
+                          : "border-border/40 text-muted-foreground hover:border-red-400/40 hover:text-red-400"
+                      }`}
+                      title={m.likedByMe ? "Unlike" : "Like"}
+                    >
+                      <Heart className={`w-3 h-3 ${m.likedByMe ? "fill-red-400" : ""}`} />
+                      {m.likeCount > 0 && <span>{m.likeCount}</span>}
+                    </button>
+                  </div>
                 </div>
-                <div className="font-mono text-sm text-foreground whitespace-pre-wrap mt-1">{m.body}</div>
+                <div className="font-mono text-sm text-foreground whitespace-pre-wrap mt-1 leading-relaxed">
+                  {renderBody(m.body)}
+                </div>
               </div>
             );
           })
         )}
       </div>
 
-      {/* Send */}
-      <form onSubmit={send} className="flex gap-2 p-3 border-t border-border/50">
-        <Input
-          value={body}
-          onChange={e => setBody(e.target.value)}
-          placeholder="Transmit to crew..."
-          className="font-mono rounded-none"
-        />
-        <Button type="submit" disabled={sending || !body.trim()} className="font-serif tracking-widest uppercase rounded-none">
-          <Send className="w-4 h-4" />
-        </Button>
-      </form>
+      {/* Send with location autocomplete */}
+      <div className="relative p-3 border-t border-border/50">
+        {showLocations && (
+          <div className="absolute bottom-full left-3 right-3 mb-1 border border-border/50 bg-card shadow-lg z-10 max-h-40 overflow-y-auto">
+            {locationResults.length === 0 ? (
+              <div className="font-mono text-xs text-muted-foreground p-2 uppercase tracking-wider">
+                {locationQuery ? "No locations found..." : "Type to search..."}
+              </div>
+            ) : (
+              locationResults.map(loc => (
+                <button
+                  key={loc.id}
+                  type="button"
+                  onClick={() => pickLocation(loc)}
+                  className="w-full text-left p-2 hover:bg-primary/10 flex items-center gap-2 border-b border-border/20 last:border-0 transition-colors"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <div>
+                    <div className="font-mono text-xs text-foreground">{loc.name}</div>
+                    {(loc.city || loc.stateName) && (
+                      <div className="font-mono text-[10px] text-muted-foreground uppercase">
+                        {[loc.city, loc.stateName].filter(Boolean).join(", ")}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+        <form onSubmit={send} className="flex gap-2">
+          <Input
+            value={body}
+            onChange={e => handleBodyChange(e.target.value)}
+            onKeyDown={e => e.key === "Escape" && setShowLocations(false)}
+            placeholder="Transmit to crew... (# to tag location)"
+            className="font-mono rounded-none"
+          />
+          <Button type="submit" disabled={sending || !body.trim()} className="font-serif tracking-widest uppercase rounded-none">
+            <Send className="w-4 h-4" />
+          </Button>
+        </form>
+      </div>
 
       {/* Edit dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

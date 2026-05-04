@@ -5,6 +5,7 @@ import {
   crewMembersTable,
   chatRoomsTable,
   roomMessagesTable,
+  roomMessageLikesTable,
   usersTable,
 } from "@workspace/db";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
@@ -283,6 +284,15 @@ router.get(
         authorUsername: usersTable.username,
         authorTrustLevel: usersTable.trustLevel,
         createdAt: roomMessagesTable.createdAt,
+        likeCount: sql<number>`(
+          SELECT COUNT(*)::int FROM room_message_likes
+          WHERE room_message_likes.message_id = ${roomMessagesTable.id}
+        )`,
+        likedByMe: sql<boolean>`EXISTS(
+          SELECT 1 FROM room_message_likes
+          WHERE room_message_likes.message_id = ${roomMessagesTable.id}
+            AND room_message_likes.user_id = ${user.id}
+        )`,
       })
       .from(roomMessagesTable)
       .leftJoin(usersTable, eq(usersTable.id, roomMessagesTable.authorId))
@@ -357,7 +367,56 @@ router.post(
       authorUsername: user.username,
       authorTrustLevel: user.trustLevel ?? 0,
       createdAt: created.createdAt,
+      likeCount: 0,
+      likedByMe: false,
     });
+  },
+);
+
+// ─── Toggle like on a crew message ───────────────────────────────────────────
+
+router.post(
+  "/crews/:id/messages/:msgId/like",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const user = (req as AuthedRequest).user;
+    const crewId = Number.parseInt(req.params.id, 10);
+    const msgId = Number.parseInt(req.params.msgId, 10);
+
+    if (!Number.isFinite(crewId) || !Number.isFinite(msgId)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+
+    const [membership] = await db
+      .select()
+      .from(crewMembersTable)
+      .where(and(eq(crewMembersTable.crewId, crewId), eq(crewMembersTable.userId, user.id)));
+    if (!membership) {
+      res.status(403).json({ error: "Not a crew member" });
+      return;
+    }
+
+    const [existing] = await db
+      .select()
+      .from(roomMessageLikesTable)
+      .where(and(eq(roomMessageLikesTable.messageId, msgId), eq(roomMessageLikesTable.userId, user.id)));
+
+    let liked: boolean;
+    if (existing) {
+      await db.delete(roomMessageLikesTable).where(eq(roomMessageLikesTable.id, existing.id));
+      liked = false;
+    } else {
+      await db.insert(roomMessageLikesTable).values({ messageId: msgId, userId: user.id });
+      liked = true;
+    }
+
+    const [{ count }] = await db
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(roomMessageLikesTable)
+      .where(eq(roomMessageLikesTable.messageId, msgId));
+
+    res.json({ liked, count });
   },
 );
 

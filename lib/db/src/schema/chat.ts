@@ -40,6 +40,55 @@ export const roomMessagesTable = pgTable("room_messages", {
     .defaultNow(),
 });
 
+export const roomMessageLikesTable = pgTable(
+  "room_message_likes",
+  {
+    id: serial("id").primaryKey(),
+    messageId: integer("message_id")
+      .notNull()
+      .references(() => roomMessagesTable.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    msgUserUnique: uniqueIndex("room_message_likes_msg_user_idx").on(
+      t.messageId,
+      t.userId,
+    ),
+  }),
+);
+
+export const roomBansTable = pgTable(
+  "room_bans",
+  {
+    id: serial("id").primaryKey(),
+    roomId: integer("room_id")
+      .notNull()
+      .references(() => chatRoomsTable.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    bannedUntil: timestamp("banned_until", { withTimezone: true }),
+    bannedBy: integer("banned_by")
+      .notNull()
+      .references(() => usersTable.id),
+    reason: text("reason").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    roomUserUnique: uniqueIndex("room_bans_room_user_idx").on(
+      t.roomId,
+      t.userId,
+    ),
+  }),
+);
+
 export const crewsTable = pgTable("crews", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -83,3 +132,5 @@ export type ChatRoom = typeof chatRoomsTable.$inferSelect;
 export type RoomMessage = typeof roomMessagesTable.$inferSelect;
 export type Crew = typeof crewsTable.$inferSelect;
 export type CrewMember = typeof crewMembersTable.$inferSelect;
+export type RoomMessageLike = typeof roomMessageLikesTable.$inferSelect;
+export type RoomBan = typeof roomBansTable.$inferSelect;
