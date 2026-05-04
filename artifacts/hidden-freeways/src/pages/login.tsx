@@ -36,7 +36,7 @@ export default function Login() {
       <div className="w-full max-w-md relative z-10 space-y-8 p-8 border border-border/50 bg-card/40 backdrop-blur-sm">
         <div className="space-y-2 text-center">
           <h1 className="text-4xl font-serif text-primary uppercase tracking-widest">
-            Hidden<span className="text-foreground">Freeways</span>
+            Null<span className="text-foreground">Access</span>
           </h1>
           <p className="text-sm font-mono text-muted-foreground uppercase tracking-widest">
             Members Only. The freeways stay hidden.
